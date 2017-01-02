@@ -29,7 +29,7 @@ from homeassistant.const import (
     EVENT_TIME_CHANGED, MATCH_ALL, RESTART_EXIT_CODE,
     SERVICE_HOMEASSISTANT_RESTART, SERVICE_HOMEASSISTANT_STOP, __version__)
 from homeassistant.exceptions import (
-    HomeAssistantError, InvalidEntityFormatError, ShuttingDown)
+    HomeAssistantError, InvalidEntityFormatError, PermissionDenied, ShuttingDown)
 from homeassistant.util.async import (
     run_coroutine_threadsafe, run_callback_threadsafe)
 import homeassistant.util as util
@@ -313,7 +313,10 @@ class HomeAssistant(object):
             # Do not report on shutting down exceptions.
             if isinstance(exception, ShuttingDown):
                 return
-
+            # Do not report on PermissionDenied exceptions, they just tell
+            # that current (api) user does not have enough rights
+            if isinstance(exception, PermissionDenied):
+                return
             kwargs['exc_info'] = (type(exception), exception,
                                   exception.__traceback__)
 
@@ -556,25 +559,31 @@ class State(object):
     attributes: extra information on entity and state
     last_changed: last time the state was changed, not the attributes.
     last_updated: last time this object was updated.
+    permissions: optional, permissions (dict) to map permissions per api user;
+        if None then allow all, if current api username found as permission
+        key then use these explicit user-permissions, otherwise fallback to
+        '*' entry which specifies 'any other' user permissions.
     """
 
     __slots__ = ['entity_id', 'state', 'attributes',
-                 'last_changed', 'last_updated']
+                 'last_changed', 'last_updated', 'permissions']
 
     def __init__(self, entity_id, state, attributes=None, last_changed=None,
-                 last_updated=None):
+                 last_updated=None, permissions=None):
         """Initialize a new state."""
         if not valid_entity_id(entity_id):
             raise InvalidEntityFormatError((
                 "Invalid entity id encountered: {}. "
                 "Format should be <domain>.<object_id>").format(entity_id))
-
         self.entity_id = entity_id.lower()
         self.state = str(state)
         self.attributes = MappingProxyType(attributes or {})
         self.last_updated = last_updated or dt_util.utcnow()
-
         self.last_changed = last_changed or self.last_updated
+        self.permissions = permissions
+        _LOGGER.debug("State.__init__ %s" % self)
+#        import pdb
+#        pdb.set_trace()
 
     @property
     def domain(self):
@@ -630,22 +639,26 @@ class State(object):
             last_updated = dt_util.parse_datetime(last_updated)
 
         return cls(json_dict['entity_id'], json_dict['state'],
-                   json_dict.get('attributes'), last_changed, last_updated)
+                   json_dict.get('attributes'), last_changed, last_updated,
+                   json_dict.get('permissions'))
 
     def __eq__(self, other):
         """Return the comparison of the state."""
         return (self.__class__ == other.__class__ and
                 self.entity_id == other.entity_id and
                 self.state == other.state and
-                self.attributes == other.attributes)
+                self.attributes == other.attributes and
+                self.permissions == other.permissions)
 
     def __repr__(self):
         """Return the representation of the states."""
         attr = "; {}".format(util.repr_helper(self.attributes)) \
                if self.attributes else ""
+        perms = "; {}".format(util.repr_helper(self.permissions)) \
+               if self.permissions else ""
 
-        return "<state {}={}{} @ {}>".format(
-            self.entity_id, self.state, attr,
+        return "<state {}={}{}{} @ {}>".format(
+            self.entity_id, self.state, attr, perms,
             dt_util.as_local(self.last_changed).isoformat())
 
 
@@ -777,7 +790,9 @@ class StateMachine(object):
         entity_id = entity_id.lower()
         new_state = str(new_state)
         attributes = attributes or {}
-
+        _LOGGER.debug("core:async_set '%s' to '%s'" % (entity_id, new_state))
+        _LOGGER.debug("self._states: %s" % self._states)
+        #import pdb; pdb.set_trace()
         old_state = self._states.get(entity_id)
 
         is_existing = old_state is not None

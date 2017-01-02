@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 import asyncio
 from contextlib import closing
+import logging
 import json
 import unittest
 from unittest.mock import Mock, patch
@@ -15,11 +16,37 @@ import homeassistant.components.http as http
 
 from tests.common import get_test_instance_port, get_test_home_assistant
 
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.DEBUG)
+
 API_PASSWORD = "test1234"
 SERVER_PORT = get_test_instance_port()
 HTTP_BASE_URL = "http://127.0.0.1:{}".format(SERVER_PORT)
 HA_HEADERS = {
     const.HTTP_HEADER_HA_AUTH: API_PASSWORD,
+    const.HTTP_HEADER_CONTENT_TYPE: const.CONTENT_TYPE_JSON,
+}
+
+# for testing with admin rights
+API_USERNAME_ADMIN = 'admin'
+API_PASSWORD_ADMIN = "admin1234"
+HA_HEADERS_ADMIN = {
+    const.HTTP_HEADER_HA_AUTH: API_PASSWORD_ADMIN,
+    const.HTTP_HEADER_CONTENT_TYPE: const.CONTENT_TYPE_JSON,
+}
+
+# for testing with user-only rights (user can not write to some components...)
+API_USERNAME_USER = 'user1'
+API_PASSWORD_USER = "user1234"
+HA_HEADERS_USER = {
+    const.HTTP_HEADER_HA_AUTH: API_PASSWORD_USER,
+    const.HTTP_HEADER_CONTENT_TYPE: const.CONTENT_TYPE_JSON,
+}
+
+API_USERNAME_USER2 = 'user2'
+API_PASSWORD_USER2 = "user4321"
+HA_HEADERS_USER2 = {
+    const.HTTP_HEADER_HA_AUTH: API_PASSWORD_USER2,
     const.HTTP_HEADER_CONTENT_TYPE: const.CONTENT_TYPE_JSON,
 }
 
@@ -43,8 +70,23 @@ def setUpModule():
 
     bootstrap.setup_component(
         hass, http.DOMAIN,
-        {http.DOMAIN: {http.CONF_API_PASSWORD: API_PASSWORD,
-         http.CONF_SERVER_PORT: SERVER_PORT}})
+        {http.DOMAIN: {
+         http.CONF_API_PASSWORD: API_PASSWORD,
+         http.CONF_SERVER_PORT: SERVER_PORT,
+         http.CONF_API_USERS: {
+          API_USERNAME_ADMIN: {
+           'default_permissions': 'rwx',
+           'password_hash': '22c377f92775d7145752ecafd182458bdb04bbaa3e3ac0d58832c782f5a57c2b',
+          },
+          API_USERNAME_USER: {
+           'default_permissions': 'rw',
+           'password_hash': 'ab881c7fe60ae3aa12613aa44bc6199118475c52c6790f9aaf7aa9f383c70d1c',
+          },
+          API_USERNAME_USER2: {
+           'default_permissions': '',
+           'password_hash': '9ad239323284c47e975d85cb16c39f88eb34fe154de26baa589c79163ccea8c1',
+          },
+         }}})
 
     bootstrap.setup_component(hass, 'api')
 
@@ -104,6 +146,47 @@ class TestAPI(unittest.TestCase):
                       headers=HA_HEADERS)
 
         self.assertEqual("debug_state_change2",
+                         hass.states.get("test.test").state)
+
+    def test_api_state_change_as_admin(self):
+        """Test if we can change the state of an entity that exists as admin."""
+        hass.api_user = API_USERNAME_ADMIN
+        hass.states.set("test.test", "not_to_be_set")
+
+        _LOGGER.debug("_as_admin: hass.http %s " % hass.http.__dict__)
+        requests.post(_url(const.URL_API_STATES_ENTITY.format("test.test")),
+                      data=json.dumps({"state": "debug_state_change_as_admin"}),
+                      headers=HA_HEADERS_ADMIN)
+
+        self.assertEqual("debug_state_change_as_admin",
+                         hass.states.get("test.test").state)
+
+    def test_api_state_change_as_user(self):
+        """Test if we can change the state of an entity that exists as admin."""
+        hass.api_user = API_USERNAME_USER
+        hass.states.set("test.test", "not_to_be_set")
+        _LOGGER.debug("_as_user: hass.http %s " % hass.http.__dict__)
+
+        requests.post(_url(const.URL_API_STATES_ENTITY.format("test.test")),
+                      data=json.dumps({"state": "debug_state_change_as_user"}),
+                      headers=HA_HEADERS_USER)
+
+        self.assertEqual("debug_state_change_as_user",
+                         hass.states.get("test.test").state)
+
+    def test_api_state_change_as_user2(self):
+        """Test if we can change the state of an entity that exists as admin."""
+        _LOGGER.setLevel(logging.DEBUG)
+        hass.api_user = API_USERNAME_USER2
+        hass.states.set("test.test", "not_to_be_set")
+        _LOGGER.debug("_as_user2: hass.http %s " % hass.http.__dict__)
+
+        # TODO: this shouldn't work as user2 does not have any default permissions
+        requests.post(_url(const.URL_API_STATES_ENTITY.format("test.test")),
+                      data=json.dumps({"state": "debug_state_change_as_user2"}),
+                      headers=HA_HEADERS_USER2)
+
+        self.assertEqual("debug_state_change_as_user2",
                          hass.states.get("test.test").state)
 
     # pylint: disable=invalid-name

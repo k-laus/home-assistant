@@ -32,3 +32,6 @@ class TemplateError(HomeAssistantError):
         """Initalize the error."""
         super().__init__('{}: {}'.format(exception.__class__.__name__,
                                          exception))
+
+class PermissionDenied(HomeAssistantError):
+    """not enough permissions, too restrictive for current user."""

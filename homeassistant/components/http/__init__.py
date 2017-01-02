@@ -39,6 +39,7 @@ DOMAIN = 'http'
 REQUIREMENTS = ('aiohttp_cors==0.5.0',)
 
 CONF_API_PASSWORD = 'api_password'
+CONF_API_USERS = 'api_users'
 CONF_SERVER_HOST = 'server_host'
 CONF_SERVER_PORT = 'server_port'
 CONF_BASE_URL = 'base_url'
@@ -82,6 +83,7 @@ DEFAULT_LOGIN_ATTEMPT_THRESHOLD = -1
 
 HTTP_SCHEMA = vol.Schema({
     vol.Optional(CONF_API_PASSWORD, default=None): cv.string,
+    vol.Optional(CONF_API_USERS, default=None): dict,
     vol.Optional(CONF_SERVER_HOST, default=DEFAULT_SERVER_HOST): cv.string,
     vol.Optional(CONF_SERVER_PORT, default=SERVER_PORT):
         vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
@@ -113,6 +115,7 @@ def async_setup(hass, config):
         conf = HTTP_SCHEMA({})
 
     api_password = conf[CONF_API_PASSWORD]
+    api_users = conf[CONF_API_USERS]
     server_host = conf[CONF_SERVER_HOST]
     server_port = conf[CONF_SERVER_PORT]
     development = conf[CONF_DEVELOPMENT] == '1'
@@ -140,7 +143,8 @@ def async_setup(hass, config):
         use_x_forwarded_for=use_x_forwarded_for,
         trusted_networks=trusted_networks,
         login_threshold=login_threshold,
-        is_ban_enabled=is_ban_enabled
+        is_ban_enabled=is_ban_enabled,
+        api_users=api_users
     )
 
     @asyncio.coroutine
@@ -181,7 +185,7 @@ class HomeAssistantWSGI(object):
     def __init__(self, hass, development, api_password, ssl_certificate,
                  ssl_key, server_host, server_port, cors_origins,
                  use_x_forwarded_for, trusted_networks,
-                 login_threshold, is_ban_enabled):
+                 login_threshold, is_ban_enabled, api_users):
         """Initialize the WSGI Home Assistant server."""
         import aiohttp_cors
 
@@ -201,6 +205,7 @@ class HomeAssistantWSGI(object):
         self.hass = hass
         self.development = development
         self.api_password = api_password
+        self.api_users = api_users
         self.ssl_certificate = ssl_certificate
         self.ssl_key = ssl_key
         self.server_host = server_host

@@ -204,11 +204,13 @@ def mock_state_change_event(hass, new_state, old_state=None):
     hass.bus.fire(EVENT_STATE_CHANGED, event_data)
 
 
-def mock_http_component(hass):
-    """Mock the HTTP component."""
+def mock_http_component(hass, api_user=None):
+    """Mock the HTTP component. Optionally an api_user name can be given."""
     hass.http = MagicMock()
     hass.config.components.append('http')
     hass.http.views = {}
+    if api_user is not None:
+        hass.http.api_user = api_user
 
     def mock_register_view(view):
         """Store registered view."""
